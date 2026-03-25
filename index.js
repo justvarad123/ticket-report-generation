@@ -9,6 +9,9 @@ app.use(express.json());
 const reports = {};
 const dashboards = {};
 
+// Your deployed URL (fallback if needed)
+const BASE_URL = "https://ticket-report-generation.onrender.com";
+
 /* =========================================================
    📄 GENERATE REPORT → RETURN DOWNLOAD LINK
 ========================================================= */
@@ -41,13 +44,13 @@ app.post("/generate-report", async (req, res) => {
             sheet.addRow([issue, data.issue_type_trends[issue]]);
         }
 
-        // Convert to buffer instead of saving file
         const buffer = await workbook.xlsx.writeBuffer();
-
-        // Store in memory
         reports[id] = buffer;
 
-        const downloadUrl = `http://localhost:3000/download-report/${id}`;
+        // Dynamic base URL (works everywhere)
+        const baseUrl = req.protocol + "://" + req.get("host") || BASE_URL;
+
+        const downloadUrl = `${baseUrl}/download-report/${id}`;
 
         res.json({
             message: "Report generated successfully",
@@ -92,7 +95,9 @@ app.post("/dashboard", (req, res) => {
 
     dashboards[id] = data;
 
-    const dashboardUrl = `http://localhost:3000/dashboard/${id}`;
+    const baseUrl = req.protocol + "://" + req.get("host") || BASE_URL;
+
+    const dashboardUrl = `${baseUrl}/dashboard/${id}`;
 
     res.json({
         message: "Dashboard created",
@@ -118,6 +123,10 @@ app.get("/dashboard/:id", (req, res) => {
     <head>
         <title>Dashboard</title>
         <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <style>
+            body { font-family: Arial; text-align: center; }
+            canvas { max-width: 700px; margin: auto; }
+        </style>
     </head>
     <body>
         <h1>📊 Ticket Dashboard</h1>
@@ -131,7 +140,7 @@ app.get("/dashboard/:id", (req, res) => {
                 data: {
                     labels: ${JSON.stringify(agentLabels)},
                     datasets: [{
-                        label: "Resolved",
+                        label: "Resolved Tickets",
                         data: ${JSON.stringify(agentData)}
                     }]
                 }
@@ -150,5 +159,5 @@ app.get("/dashboard/:id", (req, res) => {
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(\`Server running on port \${PORT}\`);
 });
