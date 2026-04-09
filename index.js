@@ -151,85 +151,189 @@ app.post("/dashboard", (req, res) => {
 app.get("/dashboard/:id", (req, res) => {
     const data = dashboards[req.params.id];
 
-    if (!data) {
-        return res.status(404).send("Dashboard not found");
-    }
+    if (!data) return res.status(404).send("Dashboard not found");
 
     const html = `
     <html>
     <head>
-        <title>Advanced Dashboard</title>
+        <title>Pro Dashboard</title>
         <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
         <style>
-            body { font-family: Arial; padding: 20px; text-align: center; }
-            .cards { display: flex; justify-content: space-around; margin-bottom: 20px; }
-            .card { padding: 20px; background: #f4f4f4; border-radius: 10px; width: 200px; }
-            canvas { max-width: 600px; margin: 20px auto; }
+            body {
+                font-family: Arial;
+                padding: 20px;
+                background: #f5f6fa;
+            }
+
+            h1 {
+                text-align: center;
+            }
+
+            .filters {
+                display: flex;
+                gap: 10px;
+                justify-content: center;
+                margin-bottom: 20px;
+            }
+
+            .grid {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 20px;
+            }
+
+            .card {
+                background: white;
+                padding: 15px;
+                border-radius: 10px;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            }
+
+            canvas {
+                width: 100% !important;
+                height: 300px !important;
+            }
         </style>
     </head>
+
     <body>
 
-        <h1>📊 Ticket Dashboard</h1>
+        <h1>📊 Operations Dashboard</h1>
 
-        <div class="cards">
-            <div class="card">Total Tickets<br><b>${data.total_tickets_last_2_months}</b></div>
-            <div class="card">Avg Resolution<br><b>${data.resolution_metrics.avg_resolution_time_hours} hrs</b></div>
-            <div class="card">High Risk<br><b>${data.risk_analysis.high_risk_tickets}</b></div>
+        <!-- FILTERS -->
+        <div class="filters">
+            <select id="metric">
+                <option value="agent">Agent</option>
+                <option value="company">Company</option>
+                <option value="issue">Issue</option>
+            </select>
         </div>
 
-        <h3>Select Metric</h3>
-        <select id="metricSelector">
-            <option value="agent">Agent Performance</option>
-            <option value="company">Company Tickets</option>
-            <option value="issue">Issue Types</option>
-        </select>
+        <div class="grid">
 
-        <canvas id="chart"></canvas>
+            <!-- 1. DONUT CHART -->
+            <div class="card">
+                <h3>Tickets by Issue Type</h3>
+                <canvas id="issueChart"></canvas>
+            </div>
+
+            <!-- 2. BAR CHART -->
+            <div class="card">
+                <h3>Agent Performance</h3>
+                <canvas id="agentChart"></canvas>
+            </div>
+
+            <!-- 3. COMPANY -->
+            <div class="card">
+                <h3>Company Tickets</h3>
+                <canvas id="companyChart"></canvas>
+            </div>
+
+            <!-- 4. DAILY TREND -->
+            <div class="card">
+                <h3>Daily Trends</h3>
+                <canvas id="trendChart"></canvas>
+            </div>
+
+            <!-- 5. BACKLOG -->
+            <div class="card">
+                <h3>Backlog Aging</h3>
+                <canvas id="backlogChart"></canvas>
+            </div>
+
+            <!-- 6. RISK -->
+            <div class="card">
+                <h3>Risk Analysis</h3>
+                <canvas id="riskChart"></canvas>
+            </div>
+
+        </div>
 
         <script>
             const data = ${JSON.stringify(data)};
-            let chart;
 
-            function renderChart(type) {
-
-                let labels = [];
-                let values = [];
-
-                if (type === "agent") {
-                    labels = Object.keys(data.agent_performance);
-                    values = labels.map(a => data.agent_performance[a].resolved);
+            // ISSUE DONUT
+            new Chart(document.getElementById("issueChart"), {
+                type: "doughnut",
+                data: {
+                    labels: Object.keys(data.issue_type_trends),
+                    datasets: [{
+                        data: Object.values(data.issue_type_trends)
+                    }]
                 }
+            });
 
-                if (type === "company") {
-                    labels = Object.keys(data.company_stats);
-                    values = labels.map(c => data.company_stats[c].total);
+            // AGENT BAR
+            new Chart(document.getElementById("agentChart"), {
+                type: "bar",
+                data: {
+                    labels: Object.keys(data.agent_performance),
+                    datasets: [{
+                        label: "Resolved",
+                        data: Object.values(data.agent_performance).map(a => a.resolved)
+                    }]
                 }
+            });
 
-                if (type === "issue") {
-                    labels = Object.keys(data.issue_type_trends);
-                    values = Object.values(data.issue_type_trends);
+            // COMPANY BAR
+            new Chart(document.getElementById("companyChart"), {
+                type: "bar",
+                data: {
+                    labels: Object.keys(data.company_stats),
+                    datasets: [{
+                        label: "Tickets",
+                        data: Object.values(data.company_stats).map(c => c.total)
+                    }]
                 }
+            });
 
-                if (chart) chart.destroy();
+            // TREND LINE
+            const dates = Object.keys(data.daily_trends);
+            const created = dates.map(d => data.daily_trends[d].created);
+            const resolved = dates.map(d => data.daily_trends[d].resolved);
 
-                chart = new Chart(document.getElementById("chart"), {
-                    type: "bar",
-                    data: {
-                        labels: labels,
-                        datasets: [{
-                            label: type,
-                            data: values
-                        }]
-                    }
-                });
-            }
+            new Chart(document.getElementById("trendChart"), {
+                type: "line",
+                data: {
+                    labels: dates,
+                    datasets: [
+                        { label: "Created", data: created },
+                        { label: "Resolved", data: resolved }
+                    ]
+                }
+            });
 
-            document.getElementById("metricSelector")
-                .addEventListener("change", (e) => {
-                    renderChart(e.target.value);
-                });
+            // BACKLOG
+            new Chart(document.getElementById("backlogChart"), {
+                type: "bar",
+                data: {
+                    labels: ["2 Days", "5 Days", "10 Days"],
+                    datasets: [{
+                        data: [
+                            data.backlog_analysis.older_than_2_days,
+                            data.backlog_analysis.older_than_5_days,
+                            data.backlog_analysis.older_than_10_days
+                        ]
+                    }]
+                }
+            });
 
-            renderChart("agent");
+            // RISK
+            new Chart(document.getElementById("riskChart"), {
+                type: "pie",
+                data: {
+                    labels: ["High Risk", "Stuck", "Waiting"],
+                    datasets: [{
+                        data: [
+                            data.risk_analysis.high_risk_tickets,
+                            data.risk_analysis.stuck_pending,
+                            data.risk_analysis.waiting_customer_long
+                        ]
+                    }]
+                }
+            });
+
         </script>
 
     </body>
