@@ -28,8 +28,8 @@ app.post("/generate-report", async (req, res) => {
         summary.addRow(["Avg First Response (mins)", data.first_response_time.avg_minutes]);
 
         summary.addRow([]);
-        summary.addRow(["AI Insights"]);
-        data.ai_insights.forEach(i => summary.addRow([i]));
+        //summary.addRow(["AI Insights"]);
+        //data.ai_insights.forEach(i => summary.addRow([i]));
 
         /* ================= AGENTS ================= */
         const agents = workbook.addWorksheet("Agents");
