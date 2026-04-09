@@ -189,6 +189,7 @@ app.get("/dashboard/:id", (req, res) => {
                 border-radius: 10px;
                 box-shadow: 0 2px 5px rgba(0,0,0,0.1);
             }
+            .cards { display: flex; justify-content: space-around; margin-bottom: 20px; }
 
             canvas {
                 width: 100% !important;
@@ -200,6 +201,11 @@ app.get("/dashboard/:id", (req, res) => {
     <body>
 
         <h1>📊 Operations Dashboard</h1>
+        <div class="cards">
+            <div class="card">Total Tickets<br><b>${data.total_tickets_last_2_months}</b></div>
+            <div class="card">Avg Resolution<br><b>${data.resolution_metrics.avg_resolution_time_hours} hrs</b></div>
+            <div class="card">High Risk<br><b>${data.risk_analysis.high_risk_tickets}</b></div>
+        </div>
 
         <!-- FILTERS -->
         <div class="filters">
