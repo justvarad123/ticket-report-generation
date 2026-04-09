@@ -11,7 +11,7 @@ const dashboards = {};
 const BASE_URL = "https://ticket-report-generation.onrender.com";
 
 /* =========================================================
-   📄 GENERATE EXCEL REPORT (MULTI SHEET)
+   📄 GENERATE EXCEL REPORT
 ========================================================= */
 app.post("/generate-report", async (req, res) => {
     try {
@@ -26,10 +26,6 @@ app.post("/generate-report", async (req, res) => {
         summary.addRow(["Total Tickets", data.total_tickets_last_2_months]);
         summary.addRow(["Avg Resolution Time (hrs)", data.resolution_metrics.avg_resolution_time_hours]);
         summary.addRow(["Avg First Response (mins)", data.first_response_time.avg_minutes]);
-
-        summary.addRow([]);
-        //summary.addRow(["AI Insights"]);
-        //data.ai_insights.forEach(i => summary.addRow([i]));
 
         /* ================= AGENTS ================= */
         const agents = workbook.addWorksheet("Agents");
@@ -58,6 +54,31 @@ app.post("/generate-report", async (req, res) => {
                 c.resolution_rate,
                 c.avg_resolution_time
             ]);
+        }
+
+        /* ================= COMPANY ISSUE MATRIX (NEW) ================= */
+        const compIssueSheet = workbook.addWorksheet("Company-Issue Matrix");
+
+        const allIssuesSet = new Set();
+
+        for (const comp in data.company_issue_trends) {
+            Object.keys(data.company_issue_trends[comp]).forEach(issue => {
+                allIssuesSet.add(issue);
+            });
+        }
+
+        const allIssues = Array.from(allIssuesSet);
+
+        compIssueSheet.addRow(["Company", ...allIssues]);
+
+        for (const comp in data.company_issue_trends) {
+            const row = [comp];
+
+            allIssues.forEach(issue => {
+                row.push(data.company_issue_trends[comp][issue] || 0);
+            });
+
+            compIssueSheet.addRow(row);
         }
 
         /* ================= ISSUES ================= */
@@ -111,12 +132,9 @@ app.post("/generate-report", async (req, res) => {
 app.get("/download-report/:id", (req, res) => {
     const file = reports[req.params.id];
 
-    if (!file) {
-        return res.status(404).send("Report not found");
-    }
+    if (!file) return res.status(404).send("Report not found");
 
-    res.setHeader(
-        "Content-Type",
+    res.setHeader("Content-Type",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     );
 
@@ -129,192 +147,120 @@ app.get("/download-report/:id", (req, res) => {
 });
 
 /* =========================================================
-   📊 GENERATE DASHBOARD LINK
+   📊 DASHBOARD GENERATION
 ========================================================= */
 app.post("/dashboard", (req, res) => {
-    const data = req.body;
     const id = uuidv4();
-
-    dashboards[id] = data;
+    dashboards[id] = req.body;
 
     const baseUrl = req.protocol + "://" + req.get("host") || BASE_URL;
 
     res.json({
-        message: "Dashboard created",
         dashboard_url: `${baseUrl}/dashboard/${id}`
     });
 });
 
 /* =========================================================
-   🌐 ADVANCED DASHBOARD PAGE
+   🌐 DASHBOARD UI (ADVANCED + STACKED CHART)
 ========================================================= */
 app.get("/dashboard/:id", (req, res) => {
     const data = dashboards[req.params.id];
-
     if (!data) return res.status(404).send("Dashboard not found");
 
     const html = `
     <html>
     <head>
-        <title>Pro Dashboard</title>
+        <title>Advanced Dashboard</title>
         <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
         <style>
-            body {
-                font-family: Arial;
-                padding: 20px;
-                background: #f5f6fa;
-            }
+            body { font-family: Arial; background:#f5f6fa; padding:20px; }
+            h1 { text-align:center; }
 
-            h1 {
-                text-align: center;
-            }
-
-            .filters {
-                display: flex;
-                gap: 10px;
-                justify-content: center;
-                margin-bottom: 20px;
-            }
+            .cards { display:flex; justify-content:space-around; margin-bottom:20px; }
+            .card { background:white; padding:15px; border-radius:10px; box-shadow:0 2px 5px rgba(0,0,0,0.1); }
 
             .grid {
-                display: grid;
-                grid-template-columns: repeat(3, 1fr);
-                gap: 20px;
+                display:grid;
+                grid-template-columns:repeat(3,1fr);
+                gap:20px;
             }
 
-            .card {
-                background: white;
-                padding: 15px;
-                border-radius: 10px;
-                box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-            }
-            .cards { display: flex; justify-content: space-around; margin-bottom: 20px; }
-
-            canvas {
-                width: 100% !important;
-                height: 300px !important;
-            }
+            canvas { width:100% !important; height:300px !important; }
         </style>
     </head>
 
     <body>
 
         <h1>📊 Operations Dashboard</h1>
+
         <div class="cards">
             <div class="card">Total Tickets<br><b>${data.total_tickets_last_2_months}</b></div>
             <div class="card">Avg Resolution<br><b>${data.resolution_metrics.avg_resolution_time_hours} hrs</b></div>
             <div class="card">High Risk<br><b>${data.risk_analysis.high_risk_tickets}</b></div>
         </div>
 
-        <!-- FILTERS -->
-        <div class="filters">
-            <select id="metric">
-                <option value="agent">Agent</option>
-                <option value="company">Company</option>
-                <option value="issue">Issue</option>
-            </select>
-        </div>
-
         <div class="grid">
 
-            <!-- 1. DONUT CHART -->
-            <div class="card">
-                <h3>Tickets by Issue Type</h3>
-                <canvas id="issueChart"></canvas>
-            </div>
+            <div class="card"><h3>Issue Types</h3><canvas id="issueChart"></canvas></div>
+            <div class="card"><h3>Agent Performance</h3><canvas id="agentChart"></canvas></div>
+            <div class="card"><h3>Company Tickets</h3><canvas id="companyChart"></canvas></div>
 
-            <!-- 2. BAR CHART -->
-            <div class="card">
-                <h3>Agent Performance</h3>
-                <canvas id="agentChart"></canvas>
-            </div>
+            <div class="card"><h3>Daily Trends</h3><canvas id="trendChart"></canvas></div>
+            <div class="card"><h3>Backlog</h3><canvas id="backlogChart"></canvas></div>
+            <div class="card"><h3>Risk</h3><canvas id="riskChart"></canvas></div>
 
-            <!-- 3. COMPANY -->
-            <div class="card">
-                <h3>Company Tickets</h3>
-                <canvas id="companyChart"></canvas>
-            </div>
-
-            <!-- 4. DAILY TREND -->
-            <div class="card">
-                <h3>Daily Trends</h3>
-                <canvas id="trendChart"></canvas>
-            </div>
-
-            <!-- 5. BACKLOG -->
-            <div class="card">
-                <h3>Backlog Aging</h3>
-                <canvas id="backlogChart"></canvas>
-            </div>
-
-            <!-- 6. RISK -->
-            <div class="card">
-                <h3>Risk Analysis</h3>
-                <canvas id="riskChart"></canvas>
-            </div>
+            <div class="card"><h3>Company vs Issue</h3><canvas id="stackedChart"></canvas></div>
 
         </div>
 
         <script>
             const data = ${JSON.stringify(data)};
 
-            // ISSUE DONUT
-            new Chart(document.getElementById("issueChart"), {
+            new Chart(issueChart, {
                 type: "doughnut",
                 data: {
                     labels: Object.keys(data.issue_type_trends),
-                    datasets: [{
-                        data: Object.values(data.issue_type_trends)
-                    }]
+                    datasets: [{ data: Object.values(data.issue_type_trends) }]
                 }
             });
 
-            // AGENT BAR
-            new Chart(document.getElementById("agentChart"), {
+            new Chart(agentChart, {
                 type: "bar",
                 data: {
                     labels: Object.keys(data.agent_performance),
                     datasets: [{
-                        label: "Resolved",
                         data: Object.values(data.agent_performance).map(a => a.resolved)
                     }]
                 }
             });
 
-            // COMPANY BAR
-            new Chart(document.getElementById("companyChart"), {
+            new Chart(companyChart, {
                 type: "bar",
                 data: {
                     labels: Object.keys(data.company_stats),
                     datasets: [{
-                        label: "Tickets",
                         data: Object.values(data.company_stats).map(c => c.total)
                     }]
                 }
             });
 
-            // TREND LINE
             const dates = Object.keys(data.daily_trends);
-            const created = dates.map(d => data.daily_trends[d].created);
-            const resolved = dates.map(d => data.daily_trends[d].resolved);
-
-            new Chart(document.getElementById("trendChart"), {
+            new Chart(trendChart, {
                 type: "line",
                 data: {
                     labels: dates,
                     datasets: [
-                        { label: "Created", data: created },
-                        { label: "Resolved", data: resolved }
+                        { label: "Created", data: dates.map(d => data.daily_trends[d].created) },
+                        { label: "Resolved", data: dates.map(d => data.daily_trends[d].resolved) }
                     ]
                 }
             });
 
-            // BACKLOG
-            new Chart(document.getElementById("backlogChart"), {
+            new Chart(backlogChart, {
                 type: "bar",
                 data: {
-                    labels: ["2 Days", "5 Days", "10 Days"],
+                    labels: ["2d","5d","10d"],
                     datasets: [{
                         data: [
                             data.backlog_analysis.older_than_2_days,
@@ -325,11 +271,10 @@ app.get("/dashboard/:id", (req, res) => {
                 }
             });
 
-            // RISK
-            new Chart(document.getElementById("riskChart"), {
+            new Chart(riskChart, {
                 type: "pie",
                 data: {
-                    labels: ["High Risk", "Stuck", "Waiting"],
+                    labels: ["High Risk","Stuck","Waiting"],
                     datasets: [{
                         data: [
                             data.risk_analysis.high_risk_tickets,
@@ -337,6 +282,36 @@ app.get("/dashboard/:id", (req, res) => {
                             data.risk_analysis.waiting_customer_long
                         ]
                     }]
+                }
+            });
+
+            // 🔥 STACKED CHART
+            const compIssues = data.company_issue_trends;
+
+            const issueSet = new Set();
+            Object.values(compIssues).forEach(obj => {
+                Object.keys(obj).forEach(issue => issueSet.add(issue));
+            });
+
+            const issues = Array.from(issueSet);
+            const companies = Object.keys(compIssues);
+
+            const datasets = issues.map(issue => ({
+                label: issue,
+                data: companies.map(c => compIssues[c][issue] || 0)
+            }));
+
+            new Chart(stackedChart, {
+                type: "bar",
+                data: {
+                    labels: companies,
+                    datasets: datasets
+                },
+                options: {
+                    scales: {
+                        x: { stacked: true },
+                        y: { stacked: true }
+                    }
                 }
             });
 
