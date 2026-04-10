@@ -9,11 +9,14 @@ app.use(express.json());
 
 const BASE_URL = "https://ticket-report-generation.onrender.com";
 
-// 📁 Folder setup
+// 📁 Folder for reports
 const REPORT_DIR = path.join(__dirname, "reports");
 if (!fs.existsSync(REPORT_DIR)) {
   fs.mkdirSync(REPORT_DIR);
 }
+
+// ✅ In-memory dashboard store (fix for URL issue)
+const dashboards = {};
 
 /* =========================================================
    📄 GENERATE EXCEL REPORT
@@ -25,14 +28,23 @@ app.post("/generate-report", async (req, res) => {
 
     const workbook = new ExcelJS.Workbook();
 
+    /* ===== SUMMARY ===== */
     const summary = workbook.addWorksheet("Summary");
     summary.addRow(["Metric", "Value"]);
     summary.addRow(["Total Tickets", data.total_tickets_last_2_months]);
-    summary.addRow(["Avg Resolution Time (hrs)", data.resolution_metrics.avg_resolution_time_hours]);
-    summary.addRow(["Avg First Response (mins)", data.first_response_time.avg_minutes]);
+    summary.addRow([
+      "Avg Resolution Time (hrs)",
+      data.resolution_metrics.avg_resolution_time_hours,
+    ]);
+    summary.addRow([
+      "Avg First Response (mins)",
+      data.first_response_time.avg_minutes,
+    ]);
 
+    /* ===== AGENTS ===== */
     const agents = workbook.addWorksheet("Agents");
     agents.addRow(["Agent", "Resolved", "Avg Resolution Time", "Efficiency"]);
+
     for (const agent in data.agent_performance) {
       agents.addRow([
         agent,
@@ -42,23 +54,85 @@ app.post("/generate-report", async (req, res) => {
       ]);
     }
 
+    /* ===== COMPANIES ===== */
     const companies = workbook.addWorksheet("Companies");
-    companies.addRow(["Company", "Total", "Resolved", "Open", "Resolution %", "Avg Time"]);
+    companies.addRow([
+      "Company",
+      "Total",
+      "Resolved",
+      "Open",
+      "Resolution %",
+      "Avg Time",
+    ]);
+
     for (const comp in data.company_stats) {
       const c = data.company_stats[comp];
-      companies.addRow([comp, c.total, c.resolved, c.open, c.resolution_rate, c.avg_resolution_time]);
+      companies.addRow([
+        comp,
+        c.total,
+        c.resolved,
+        c.open,
+        c.resolution_rate,
+        c.avg_resolution_time,
+      ]);
     }
 
+    /* ===== COMPANY ISSUE MATRIX ===== */
+    const compIssueSheet = workbook.addWorksheet("Company-Issue Matrix");
+
+    const allIssuesSet = new Set();
+    for (const comp in data.company_issue_trends) {
+      Object.keys(data.company_issue_trends[comp]).forEach((issue) => {
+        allIssuesSet.add(issue);
+      });
+    }
+
+    const allIssues = Array.from(allIssuesSet);
+    compIssueSheet.addRow(["Company", ...allIssues]);
+
+    for (const comp in data.company_issue_trends) {
+      const row = [comp];
+      allIssues.forEach((issue) => {
+        row.push(data.company_issue_trends[comp][issue] || 0);
+      });
+      compIssueSheet.addRow(row);
+    }
+
+    /* ===== ISSUES ===== */
     const issues = workbook.addWorksheet("Issues");
     issues.addRow(["Issue Type", "Count"]);
+
     for (const issue in data.issue_type_trends) {
       issues.addRow([issue, data.issue_type_trends[issue]]);
     }
 
+    /* ===== BACKLOG ===== */
+    const backlog = workbook.addWorksheet("Backlog & Risk");
+    backlog.addRow(["Metric", "Value"]);
+    backlog.addRow(["Open Tickets", data.backlog_analysis.total_open]);
+    backlog.addRow([">2 Days", data.backlog_analysis.older_than_2_days]);
+    backlog.addRow([">5 Days", data.backlog_analysis.older_than_5_days]);
+    backlog.addRow([">10 Days", data.backlog_analysis.older_than_10_days]);
+
+    backlog.addRow([]);
+    backlog.addRow(["High Risk Tickets", data.risk_analysis.high_risk_tickets]);
+    backlog.addRow(["Stuck Pending", data.risk_analysis.stuck_pending]);
+
+    /* ===== TRENDS ===== */
+    const trends = workbook.addWorksheet("Trends");
+    trends.addRow(["Date", "Created", "Resolved"]);
+
+    for (const day in data.daily_trends) {
+      const d = data.daily_trends[day];
+      trends.addRow([day, d.created, d.resolved]);
+    }
+
+    /* ===== SAVE FILE ===== */
     const filePath = path.join(REPORT_DIR, `${id}.xlsx`);
     await workbook.xlsx.writeFile(filePath);
 
     res.json({
+      message: "Report generated successfully",
       download_url: `${BASE_URL}/download-report/${id}`,
     });
   } catch (err) {
@@ -72,29 +146,41 @@ app.post("/generate-report", async (req, res) => {
 ========================================================= */
 app.get("/download-report/:id", (req, res) => {
   const filePath = path.join(REPORT_DIR, `${req.params.id}.xlsx`);
+
   if (!fs.existsSync(filePath)) {
     return res.status(404).send("Report not found");
   }
+
   res.download(filePath);
 });
 
 /* =========================================================
-   📊 DASHBOARD GENERATION
+   📊 DASHBOARD GENERATION (FIXED)
 ========================================================= */
 app.post("/dashboard", (req, res) => {
-  const encoded = encodeURIComponent(JSON.stringify(req.body));
+  const id = uuidv4();
+
+  dashboards[id] = {
+    data: req.body,
+    createdAt: Date.now(),
+  };
+
   res.json({
-    dashboard_url: `${BASE_URL}/dashboard?data=${encoded}`,
+    dashboard_url: `${BASE_URL}/dashboard/${id}`,
   });
 });
 
 /* =========================================================
-   🌐 DASHBOARD UI (FULL CHARTS BACK)
+   🌐 DASHBOARD UI (FULL CHARTS)
 ========================================================= */
-app.get("/dashboard", (req, res) => {
-  if (!req.query.data) return res.send("No data");
+app.get("/dashboard/:id", (req, res) => {
+  const record = dashboards[req.params.id];
 
-  const data = JSON.parse(decodeURIComponent(req.query.data));
+  if (!record) {
+    return res.status(404).send("Dashboard not found or expired");
+  }
+
+  const data = record.data;
 
   const html = `
   <html>
@@ -204,7 +290,6 @@ app.get("/dashboard", (req, res) => {
         }
       });
 
-      // 🔥 STACKED CHART
       const compIssues = data.company_issue_trends;
 
       const issueSet = new Set();
