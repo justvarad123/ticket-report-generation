@@ -8,166 +8,177 @@ app.use(express.json());
 const reports = {};
 const dashboards = {};
 
+// ✅ Always use deployed URL (IMPORTANT)
 const BASE_URL = "https://ticket-report-generation.onrender.com";
 
 /* =========================================================
    📄 GENERATE EXCEL REPORT
 ========================================================= */
 app.post("/generate-report", async (req, res) => {
-    try {
-        const data = req.body;
-        const id = uuidv4();
+  try {
+    const data = req.body;
+    const id = uuidv4();
 
-        const workbook = new ExcelJS.Workbook();
+    const workbook = new ExcelJS.Workbook();
 
-        /* ================= SUMMARY ================= */
-        const summary = workbook.addWorksheet("Summary");
-        summary.addRow(["Metric", "Value"]);
-        summary.addRow(["Total Tickets", data.total_tickets_last_2_months]);
-        summary.addRow(["Avg Resolution Time (hrs)", data.resolution_metrics.avg_resolution_time_hours]);
-        summary.addRow(["Avg First Response (mins)", data.first_response_time.avg_minutes]);
+    /* ================= SUMMARY ================= */
+    const summary = workbook.addWorksheet("Summary");
+    summary.addRow(["Metric", "Value"]);
+    summary.addRow(["Total Tickets", data.total_tickets_last_2_months]);
+    summary.addRow([
+      "Avg Resolution Time (hrs)",
+      data.resolution_metrics.avg_resolution_time_hours,
+    ]);
+    summary.addRow([
+      "Avg First Response (mins)",
+      data.first_response_time.avg_minutes,
+    ]);
 
-        /* ================= AGENTS ================= */
-        const agents = workbook.addWorksheet("Agents");
-        agents.addRow(["Agent", "Resolved", "Avg Resolution Time", "Efficiency"]);
+    /* ================= AGENTS ================= */
+    const agents = workbook.addWorksheet("Agents");
+    agents.addRow(["Agent", "Resolved", "Avg Resolution Time", "Efficiency"]);
 
-        for (const agent in data.agent_performance) {
-            agents.addRow([
-                agent,
-                data.agent_performance[agent].resolved,
-                data.agent_performance[agent].avg_resolution_time,
-                data.agent_efficiency[agent]
-            ]);
-        }
-
-        /* ================= COMPANIES ================= */
-        const companies = workbook.addWorksheet("Companies");
-        companies.addRow(["Company", "Total", "Resolved", "Open", "Resolution %", "Avg Time"]);
-
-        for (const comp in data.company_stats) {
-            const c = data.company_stats[comp];
-            companies.addRow([
-                comp,
-                c.total,
-                c.resolved,
-                c.open,
-                c.resolution_rate,
-                c.avg_resolution_time
-            ]);
-        }
-
-        /* ================= COMPANY ISSUE MATRIX (NEW) ================= */
-        const compIssueSheet = workbook.addWorksheet("Company-Issue Matrix");
-
-        const allIssuesSet = new Set();
-
-        for (const comp in data.company_issue_trends) {
-            Object.keys(data.company_issue_trends[comp]).forEach(issue => {
-                allIssuesSet.add(issue);
-            });
-        }
-
-        const allIssues = Array.from(allIssuesSet);
-
-        compIssueSheet.addRow(["Company", ...allIssues]);
-
-        for (const comp in data.company_issue_trends) {
-            const row = [comp];
-
-            allIssues.forEach(issue => {
-                row.push(data.company_issue_trends[comp][issue] || 0);
-            });
-
-            compIssueSheet.addRow(row);
-        }
-
-        /* ================= ISSUES ================= */
-        const issues = workbook.addWorksheet("Issues");
-        issues.addRow(["Issue Type", "Count"]);
-
-        for (const issue in data.issue_type_trends) {
-            issues.addRow([issue, data.issue_type_trends[issue]]);
-        }
-
-        /* ================= BACKLOG ================= */
-        const backlog = workbook.addWorksheet("Backlog & Risk");
-        backlog.addRow(["Metric", "Value"]);
-        backlog.addRow(["Open Tickets", data.backlog_analysis.total_open]);
-        backlog.addRow([">2 Days", data.backlog_analysis.older_than_2_days]);
-        backlog.addRow([">5 Days", data.backlog_analysis.older_than_5_days]);
-        backlog.addRow([">10 Days", data.backlog_analysis.older_than_10_days]);
-
-        backlog.addRow([]);
-        backlog.addRow(["High Risk Tickets", data.risk_analysis.high_risk_tickets]);
-        backlog.addRow(["Stuck Pending", data.risk_analysis.stuck_pending]);
-
-        /* ================= TRENDS ================= */
-        const trends = workbook.addWorksheet("Trends");
-        trends.addRow(["Date", "Created", "Resolved"]);
-
-        for (const day in data.daily_trends) {
-            const d = data.daily_trends[day];
-            trends.addRow([day, d.created, d.resolved]);
-        }
-
-        const buffer = await workbook.xlsx.writeBuffer();
-        reports[id] = buffer;
-
-        const baseUrl = req.protocol + "://" + req.get("host") || BASE_URL;
-
-        res.json({
-            message: "Report generated successfully",
-            download_url: `${baseUrl}/download-report/${id}`
-        });
-
-    } catch (err) {
-        console.error(err);
-        res.status(500).send("Error generating report");
+    for (const agent in data.agent_performance) {
+      agents.addRow([
+        agent,
+        data.agent_performance[agent].resolved,
+        data.agent_performance[agent].avg_resolution_time,
+        data.agent_efficiency[agent],
+      ]);
     }
+
+    /* ================= COMPANIES ================= */
+    const companies = workbook.addWorksheet("Companies");
+    companies.addRow([
+      "Company",
+      "Total",
+      "Resolved",
+      "Open",
+      "Resolution %",
+      "Avg Time",
+    ]);
+
+    for (const comp in data.company_stats) {
+      const c = data.company_stats[comp];
+      companies.addRow([
+        comp,
+        c.total,
+        c.resolved,
+        c.open,
+        c.resolution_rate,
+        c.avg_resolution_time,
+      ]);
+    }
+
+    /* ================= COMPANY ISSUE MATRIX ================= */
+    const compIssueSheet = workbook.addWorksheet("Company-Issue Matrix");
+
+    const allIssuesSet = new Set();
+    for (const comp in data.company_issue_trends) {
+      Object.keys(data.company_issue_trends[comp]).forEach((issue) => {
+        allIssuesSet.add(issue);
+      });
+    }
+
+    const allIssues = Array.from(allIssuesSet);
+    compIssueSheet.addRow(["Company", ...allIssues]);
+
+    for (const comp in data.company_issue_trends) {
+      const row = [comp];
+      allIssues.forEach((issue) => {
+        row.push(data.company_issue_trends[comp][issue] || 0);
+      });
+      compIssueSheet.addRow(row);
+    }
+
+    /* ================= ISSUES ================= */
+    const issues = workbook.addWorksheet("Issues");
+    issues.addRow(["Issue Type", "Count"]);
+
+    for (const issue in data.issue_type_trends) {
+      issues.addRow([issue, data.issue_type_trends[issue]]);
+    }
+
+    /* ================= BACKLOG ================= */
+    const backlog = workbook.addWorksheet("Backlog & Risk");
+    backlog.addRow(["Metric", "Value"]);
+    backlog.addRow(["Open Tickets", data.backlog_analysis.total_open]);
+    backlog.addRow([">2 Days", data.backlog_analysis.older_than_2_days]);
+    backlog.addRow([">5 Days", data.backlog_analysis.older_than_5_days]);
+    backlog.addRow([">10 Days", data.backlog_analysis.older_than_10_days]);
+
+    backlog.addRow([]);
+    backlog.addRow(["High Risk Tickets", data.risk_analysis.high_risk_tickets]);
+    backlog.addRow(["Stuck Pending", data.risk_analysis.stuck_pending]);
+
+    /* ================= TRENDS ================= */
+    const trends = workbook.addWorksheet("Trends");
+    trends.addRow(["Date", "Created", "Resolved"]);
+
+    for (const day in data.daily_trends) {
+      const d = data.daily_trends[day];
+      trends.addRow([day, d.created, d.resolved]);
+    }
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    reports[id] = buffer;
+
+    const downloadUrl = `${BASE_URL}/download-report/${id}`;
+
+    console.log("Report URL:", downloadUrl);
+
+    res.json({
+      message: "Report generated successfully",
+      download_url: downloadUrl,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error generating report");
+  }
 });
 
 /* =========================================================
    📥 DOWNLOAD REPORT
 ========================================================= */
 app.get("/download-report/:id", (req, res) => {
-    const file = reports[req.params.id];
+  const file = reports[req.params.id];
 
-    if (!file) return res.status(404).send("Report not found");
+  if (!file) return res.status(404).send("Report not found");
 
-    res.setHeader("Content-Type",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    );
+  res.setHeader(
+    "Content-Type",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  );
 
-    res.setHeader(
-        "Content-Disposition",
-        "attachment; filename=report.xlsx"
-    );
+  res.setHeader("Content-Disposition", "attachment; filename=report.xlsx");
 
-    res.send(file);
+  res.send(file);
 });
 
 /* =========================================================
    📊 DASHBOARD GENERATION
 ========================================================= */
 app.post("/dashboard", (req, res) => {
-    const id = uuidv4();
-    dashboards[id] = req.body;
+  const id = uuidv4();
+  dashboards[id] = req.body;
 
-    const baseUrl = req.protocol + "://" + req.get("host") || BASE_URL;
+  const dashboardUrl = `${BASE_URL}/dashboard/${id}`;
 
-    res.json({
-        dashboard_url: `${baseUrl}/dashboard/${id}`
-    });
+  console.log("Dashboard URL:", dashboardUrl);
+
+  res.json({
+    dashboard_url: dashboardUrl,
+  });
 });
 
 /* =========================================================
-   🌐 DASHBOARD UI (ADVANCED + STACKED CHART)
+   🌐 DASHBOARD UI
 ========================================================= */
 app.get("/dashboard/:id", (req, res) => {
-    const data = dashboards[req.params.id];
-    if (!data) return res.status(404).send("Dashboard not found");
+  const data = dashboards[req.params.id];
+  if (!data) return res.status(404).send("Dashboard not found");
 
-    const html = `
+  const html = `
     <html>
     <head>
         <title>Advanced Dashboard</title>
@@ -176,22 +187,14 @@ app.get("/dashboard/:id", (req, res) => {
         <style>
             body { font-family: Arial; background:#f5f6fa; padding:20px; }
             h1 { text-align:center; }
-
             .cards { display:flex; justify-content:space-around; margin-bottom:20px; }
             .card { background:white; padding:15px; border-radius:10px; box-shadow:0 2px 5px rgba(0,0,0,0.1); }
-
-            .grid {
-                display:grid;
-                grid-template-columns:repeat(3,1fr);
-                gap:20px;
-            }
-
+            .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:20px; }
             canvas { width:100% !important; height:300px !important; }
         </style>
     </head>
 
     <body>
-
         <h1>📊 Operations Dashboard</h1>
 
         <div class="cards">
@@ -201,7 +204,6 @@ app.get("/dashboard/:id", (req, res) => {
         </div>
 
         <div class="grid">
-
             <div class="card"><h3>Issue Types</h3><canvas id="issueChart"></canvas></div>
             <div class="card"><h3>Agent Performance</h3><canvas id="agentChart"></canvas></div>
             <div class="card"><h3>Company Tickets</h3><canvas id="companyChart"></canvas></div>
@@ -211,7 +213,6 @@ app.get("/dashboard/:id", (req, res) => {
             <div class="card"><h3>Risk</h3><canvas id="riskChart"></canvas></div>
 
             <div class="card"><h3>Company vs Issue</h3><canvas id="stackedChart"></canvas></div>
-
         </div>
 
         <script>
@@ -234,8 +235,7 @@ app.get("/dashboard/:id", (req, res) => {
                     }]
                 }
             });
-
-            new Chart(companyChart, {
+                         new Chart(companyChart, {
                 type: "bar",
                 data: {
                     labels: Object.keys(data.company_stats),
@@ -316,12 +316,11 @@ app.get("/dashboard/:id", (req, res) => {
             });
 
         </script>
-
     </body>
     </html>
     `;
 
-    res.send(html);
+  res.send(html);
 });
 
 /* =========================================================
@@ -330,5 +329,5 @@ app.get("/dashboard/:id", (req, res) => {
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-    console.log("Server running on port " + PORT);
+  console.log("Server running on port " + PORT);
 });
